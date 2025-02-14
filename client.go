@@ -2,6 +2,7 @@ package websockets
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -103,6 +104,10 @@ func (c *Client) readPump() {
 				go func() {
 					defer c.handling.Done()
 					body := handler.Empty()
+					if err := json.Unmarshal(msg.Content, &body); err != nil {
+						c.logger.Errorf("unmarshal message content: %v", err)
+						return
+					}
 					if err := handler.Handle(c, body); err != nil {
 						c.logger.Errorf("handler returned error: %v", err)
 					}
