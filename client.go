@@ -22,7 +22,10 @@ type Client struct {
 	tx chan *message
 
 	handling *sync.WaitGroup
+
 	fin      chan struct{}
+	closer   *sync.Once
+	isClosed bool
 
 	logger Logger
 	opts   ClientOpts
@@ -55,6 +58,7 @@ func NewClient(opts ClientOpts) (*Client, error) {
 		tx:         make(chan *message, 250),
 		handling:   &sync.WaitGroup{},
 		fin:        make(chan struct{}),
+		closer:     &sync.Once{},
 		logger:     opts.Logger,
 		opts:       opts,
 	}
@@ -76,6 +80,9 @@ func (c *Client) Register(topic Topic, h Handler) error {
 
 // Sends a message to the server and unmarshalls it into output
 func (c *Client) Send(ctx context.Context, topic Topic, content any) error {
+	if c.isClosed {
+		return errors.New("send on closed connection")
+	}
 	msg, err := newMessage(topic, content)
 	if err != nil {
 		return err
@@ -92,6 +99,11 @@ func (c *Client) readPump() {
 		default:
 			var msg message
 			if err := c.conn.ReadJSON(&msg); err != nil {
+				if websocket.IsUnexpectedCloseError(err) {
+					c.close()
+					c.logger.Errorf("read on unexpected closed connection", "error", err)
+					return
+				}
 				c.logger.Errorf("reading incoming json: %v", err)
 				continue
 			}
@@ -147,5 +159,19 @@ func (c *Client) Close() error {
 }
 
 func (c *Client) close() {
-	close(c.fin)
+	c.closer.Do(func() {
+		close(c.fin)
+		c.isClosed = true
+	})
+}
+
+// A blocking method that waits for the connection to close, or
+// for the provided context to be cancelled
+func (c *Client) Wait(ctx context.Context) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-c.fin:
+		return nil
+	}
 }

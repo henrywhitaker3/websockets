@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/rand"
 	"net/http"
 	"slices"
 	"sync"
@@ -83,6 +84,7 @@ func (s *Server) Handle(w http.ResponseWriter, r *http.Request) error {
 	return s.m.HandleRequest(w, r)
 }
 
+// Sends a message to all connected sessions
 func (s *Server) Broadcast(ctx context.Context, topic Topic, content string) error {
 	msg, err := newMessage(topic, content)
 	if err != nil {
@@ -95,8 +97,34 @@ func (s *Server) Broadcast(ctx context.Context, topic Topic, content string) err
 	return s.m.Broadcast(by)
 }
 
+// Sends a message to one random connected session
+func (s *Server) Once(ctx context.Context, topic Topic, content string) error {
+	sessions, err := s.m.Sessions()
+	if err != nil {
+		return fmt.Errorf("get sessions: %w", err)
+	}
+	if len(sessions) < 1 {
+		return errors.New("no connected sessions")
+	}
+	session := sessions[0]
+	if len(sessions) > 1 {
+		session = sessions[rand.Intn(len(sessions)-1)]
+	}
+	msg, err := newMessage(topic, content)
+	if err != nil {
+		return fmt.Errorf("create message: %w", err)
+	}
+	by, err := json.Marshal(msg)
+	if err != nil {
+		return fmt.Errorf("marshal message: %w", err)
+	}
+	return session.Write(by)
+}
+
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	s.Handle(w, r)
+	if err := s.Handle(w, r); err != nil {
+		s.logger.Errorf("serve http: %v", err)
+	}
 }
 
 func (s *Server) Close() error {
