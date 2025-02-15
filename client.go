@@ -94,7 +94,7 @@ func (c *Client) Send(ctx context.Context, topic Topic, content any) error {
 func (c *Client) readPump() {
 	for {
 		select {
-		case <-c.fin:
+		case <-c.Closed():
 			return
 		default:
 			var msg message
@@ -140,7 +140,7 @@ func (c *Client) Context() context.Context {
 func (c *Client) writePump() {
 	for {
 		select {
-		case <-c.fin:
+		case <-c.Closed():
 			return
 		case msg := <-c.tx:
 			if err := c.conn.WriteJSON(msg); err != nil {
@@ -158,6 +158,10 @@ func (c *Client) Close() error {
 	return c.conn.Close()
 }
 
+func (c *Client) Closed() <-chan struct{} {
+	return c.fin
+}
+
 func (c *Client) close() {
 	c.closer.Do(func() {
 		close(c.fin)
@@ -171,7 +175,7 @@ func (c *Client) Wait(ctx context.Context) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
-	case <-c.fin:
+	case <-c.Closed():
 		return nil
 	}
 }
