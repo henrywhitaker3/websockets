@@ -4,7 +4,7 @@ go 1.23.6
 
 require (
 	github.com/olahol/melody v1.2.1
-	github.com/stretchr/testify v1.8.0
+	github.com/stretchr/testify v1.10.0
 )
 
 require (
