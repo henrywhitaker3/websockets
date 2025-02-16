@@ -2,6 +2,7 @@ package websockets
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http/httptest"
 	"strings"
@@ -83,6 +84,18 @@ func (s *simpleHandler) Handle(conn Connection, out any) error {
 }
 
 var _ Handler = &simpleHandler{}
+
+type errorHandler struct{}
+
+func (s errorHandler) Empty() any {
+	return ""
+}
+
+func (s errorHandler) Handle(conn Connection, content any) error {
+	return errors.New("it failed")
+}
+
+var _ Handler = errorHandler{}
 
 type testLogger struct {
 	unit   string
