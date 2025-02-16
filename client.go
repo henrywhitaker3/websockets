@@ -49,7 +49,10 @@ type ClientOpts struct {
 func NewClient(opts ClientOpts) (*Client, error) {
 	conn, resp, err := websocket.DefaultDialer.Dial(opts.Addr, opts.Headers)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %d", err, resp.StatusCode)
+		if resp == nil {
+			return nil, fmt.Errorf("connect error: %w", err)
+		}
+		return nil, fmt.Errorf("connect error: %w: %d", err, resp.StatusCode)
 	}
 	if opts.Logger == nil {
 		opts.Logger = nilLogger{}
