@@ -194,17 +194,17 @@ func (c *Client) readPump() {
 			if err := c.conn.ReadJSON(&msg); err != nil {
 				if websocket.IsUnexpectedCloseError(err) {
 					c.close()
-					c.logger.Errorf("read on unexpected closed connection", "error", err)
+					c.logger.Errorw("read on unexpected closed connection", "error", err)
 					return
 				}
-				c.logger.Errorf("reading incoming json: %v", err)
+				c.logger.Errorw("reading incoming json: %v", err)
 				continue
 			}
 
 			if slices.Contains([]Topic{ack, reply, success, errorT}, msg.Topic) {
 				pipe, ok := c.pipes[string(msg.Id)]
 				if !ok {
-					c.logger.Errorf("ack or reply has no recevier")
+					c.logger.Errorw("ack or reply has no recevier")
 					continue
 				}
 				pipe <- &msg
@@ -215,7 +215,7 @@ func (c *Client) readPump() {
 				ctx, cancel := context.WithTimeout(context.Background(), c.opts.ReplyTimeout)
 				if err := c.sendForget(ctx, &message{Id: msg.Id, Topic: ack}); err != nil {
 					cancel()
-					c.logger.Errorf("sending ack reply: %w", err)
+					c.logger.Errorw("sending ack reply: %w", err)
 					continue
 				}
 				cancel()
@@ -230,22 +230,22 @@ func (c *Client) readPump() {
 					defer c.handling.Done()
 					body := handler.Empty()
 					if err := json.Unmarshal(msg.Content, &body); err != nil {
-						c.logger.Errorf("unmarshal message content: %v", err)
+						c.logger.Errorw("unmarshal message content: %v", err)
 						return
 					}
 					conn, err := newClientConnection(c, &msg)
 					if err != nil {
-						c.logger.Errorf("could not create client connection: %w", "error", err)
+						c.logger.Errorw("could not create client connection: %w", "error", err)
 						return
 					}
 					if err := handler.Handle(conn, body); err != nil {
-						c.logger.Errorf("handler returned error: %v", err)
+						c.logger.Errorw("handler returned error: %v", err)
 					}
 				}()
 				continue
 			}
 
-			c.logger.Errorf("unhandled message for %s", msg.Topic)
+			c.logger.Errorw("unhandled message for %s", msg.Topic)
 		}
 	}
 }

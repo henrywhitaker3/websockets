@@ -67,10 +67,10 @@ func (s *Server) Register(topic Topic, handler Handler) error {
 func (s *Server) handleIncoming(sess *melody.Session, data []byte) {
 	var msg message
 	if err := json.Unmarshal(data, &msg); err != nil {
-		s.logger.Errorf("unmarhsal incoming message: %v", err)
+		s.logger.Errorw("unmarhsal incoming message: %v", err)
 		return
 	}
-	s.logger.Debugf("received message", "topic", msg.Topic)
+	s.logger.Debugw("received message", "topic", msg.Topic)
 
 	if msg.ShouldAck {
 		ack, err := json.Marshal(message{
@@ -78,11 +78,11 @@ func (s *Server) handleIncoming(sess *melody.Session, data []byte) {
 			Topic: ack,
 		})
 		if err != nil {
-			s.logger.Errorf("marshal ack message: %w", err)
+			s.logger.Errorw("marshal ack message: %w", err)
 			return
 		}
 		if err := sess.Write(ack); err != nil {
-			s.logger.Errorf("send ack: %w", err)
+			s.logger.Errorw("send ack: %w", err)
 			return
 		}
 	}
@@ -90,7 +90,7 @@ func (s *Server) handleIncoming(sess *melody.Session, data []byte) {
 	if msg.Topic == ack || msg.Topic == reply {
 		pipe, ok := s.pipes[string(msg.Id)]
 		if !ok {
-			s.logger.Errorf("no registered pipe for message", "topic", msg.Topic)
+			s.logger.Errorw("no registered pipe for message", "topic", msg.Topic)
 			return
 		}
 		pipe <- &msg
@@ -102,13 +102,13 @@ func (s *Server) handleIncoming(sess *melody.Session, data []byte) {
 	s.handlersMu.RUnlock()
 
 	if !ok {
-		s.logger.Errorf("no handler for topic %s", msg.Topic)
+		s.logger.Errorw("no handler for topic %s", msg.Topic)
 		return
 	}
 
 	body := handler.Empty()
 	if err := json.Unmarshal(msg.Content, &body); err != nil {
-		s.logger.Errorf("unmarhsal message content: %v", err)
+		s.logger.Errorw("unmarhsal message content: %v", err)
 		return
 	}
 
@@ -118,20 +118,20 @@ func (s *Server) handleIncoming(sess *melody.Session, data []byte) {
 		topic: msg.Topic,
 	}
 	if err := handler.Handle(conn, body); err != nil {
-		s.logger.Errorf("handler returned error: %v", err)
+		s.logger.Errorw("handler returned error: %v", err)
 		if msg.ShouldSucceed {
 			fail, err := newMessage(errorT, err.Error())
 			if err != nil {
-				s.logger.Errorf("generate error message", "error", err)
+				s.logger.Errorw("generate error message", "error", err)
 				return
 			}
 			fail.Id = msg.Id
 			by, err := json.Marshal(fail)
 			if err != nil {
-				s.logger.Errorf("marshal error message", "error", err)
+				s.logger.Errorw("marshal error message", "error", err)
 			}
 			if err := sess.Write(by); err != nil {
-				s.logger.Errorf("send error message", "error", err)
+				s.logger.Errorw("send error message", "error", err)
 			}
 		}
 		return
@@ -143,11 +143,11 @@ func (s *Server) handleIncoming(sess *melody.Session, data []byte) {
 			Topic: success,
 		})
 		if err != nil {
-			s.logger.Errorf("marshal success message", "error", err)
+			s.logger.Errorw("marshal success message", "error", err)
 			return
 		}
 		if err := sess.Write(succ); err != nil {
-			s.logger.Errorf("send success message", "error", err)
+			s.logger.Errorw("send success message", "error", err)
 			return
 		}
 	}
@@ -254,7 +254,7 @@ func (s *Server) send(sess *melody.Session, msg *message) error {
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err := s.Handle(w, r); err != nil {
-		s.logger.Errorf("serve http: %v", err)
+		s.logger.Errorw("serve http: %v", err)
 	}
 }
 

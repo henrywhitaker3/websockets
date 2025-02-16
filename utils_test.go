@@ -104,15 +104,15 @@ type testLogger struct {
 	debugs []string
 }
 
-func (t *testLogger) Infof(msg string, args ...any) {
+func (t *testLogger) Infow(msg string, args ...any) {
 	t.infos = append(t.infos, fmt.Sprintf(msg, args...))
 }
 
-func (t *testLogger) Errorf(msg string, args ...any) {
+func (t *testLogger) Errorw(msg string, args ...any) {
 	t.errors = append(t.errors, fmt.Sprintf(msg, args...))
 }
 
-func (t *testLogger) Debugf(msg string, args ...any) {
+func (t *testLogger) Debugw(msg string, args ...any) {
 	t.debugs = append(t.debugs, fmt.Sprintf(msg, args...))
 }
 
