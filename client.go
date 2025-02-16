@@ -47,6 +47,8 @@ type ClientOpts struct {
 }
 
 func NewClient(opts ClientOpts) (*Client, error) {
+	opts.Addr = strings.ReplaceAll(opts.Addr, "http://", "ws://")
+	opts.Addr = strings.ReplaceAll(opts.Addr, "https://", "wss://")
 	conn, resp, err := websocket.DefaultDialer.Dial(opts.Addr, opts.Headers)
 	if err != nil {
 		if resp == nil {
@@ -60,8 +62,6 @@ func NewClient(opts ClientOpts) (*Client, error) {
 	if opts.ReplyTimeout == 0 {
 		opts.ReplyTimeout = time.Second
 	}
-	opts.Addr = strings.ReplaceAll(opts.Addr, "http://", "ws://")
-	opts.Addr = strings.ReplaceAll(opts.Addr, "https://", "wss://")
 	c := &Client{
 		conn:       conn,
 		handlers:   map[Topic]Handler{},
