@@ -29,6 +29,10 @@ func (w withReply) ModifyMessage(msg *message) error {
 	if err != nil {
 		return err
 	}
+	newMsg, err = toSuccessfulMessage(newMsg)
+	if err != nil {
+		return err
+	}
 	newMsg.replyTarget = w.target
 	*msg = *newMsg
 	return nil
