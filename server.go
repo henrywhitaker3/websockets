@@ -28,6 +28,12 @@ type Server struct {
 type ServerOpts struct {
 	Logger Logger
 
+	// Whether the server handles messages concurrently (default: false)
+	ConcurrentHandling *bool
+
+	// The max size of a message in bytes (default: 1024)
+	MaxMessageSize int64
+
 	// The length of time the server waits for a reply back
 	// default to 1s
 	ReplyTimeout time.Duration
@@ -35,6 +41,12 @@ type ServerOpts struct {
 
 func NewServer(opts ServerOpts) *Server {
 	m := melody.New()
+	if opts.ConcurrentHandling == nil {
+		def := false
+		opts.ConcurrentHandling = &def
+	}
+	m.Config.ConcurrentMessageHandling = *opts.ConcurrentHandling
+	m.Config.MaxMessageSize = opts.MaxMessageSize
 	if opts.Logger == nil {
 		opts.Logger = nilLogger{}
 	}
