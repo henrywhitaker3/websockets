@@ -59,3 +59,40 @@ Handlers can be registered against both the server and the client.
 server.Register(websockets.Topic("a topic"), handler)
 client.Register(websockets.Topic("another topic"), handler)
 ```
+
+## Message Replies
+
+You can pass the `websockets.WithReply(&out)` when you expect a reply back for
+the message:
+
+```go
+server := websockets.NewServer(websockets.ServerOpts{})
+...
+
+type replyHandler struct{
+    with string
+}
+
+func (r replyHandler) Empty() any {
+    return ""
+}
+
+func (r replyHandler) Handle(conn websockets.Connection, _ any) error {
+    return conn.Send(conn.Context(), r.with)
+}
+
+server.Register(websockets.Topic("bongo"), replyHandler{"pear"})
+
+var out string
+client.Send(ctx, websockets.Topic("bongo"), nil, websockets.WithReply(&out))
+fmt.Println(out) // Prints: pear
+```
+
+## Acknowledgements
+
+You can wait for the server to acknowledge the message by passing the
+`websockets.WithAck()` flag:
+
+```go
+client.Send(ctx, websockets.Topic("bongo"), nil, websockets.WithAck())
+```

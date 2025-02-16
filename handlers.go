@@ -10,11 +10,12 @@ import (
 
 type Connection interface {
 	Context() context.Context
-	Send(ctx context.Context, topic Topic, content any) error
+	Send(ctx context.Context, topic Topic, content any, flags ...Flag) error
 }
 
 type serverConnection struct {
 	s     *melody.Session
+	id    []byte
 	topic Topic
 }
 
@@ -22,7 +23,12 @@ func (s *serverConnection) Context() context.Context {
 	return s.s.Request.Context()
 }
 
-func (s *serverConnection) Send(ctx context.Context, topic Topic, content any) error {
+func (s *serverConnection) Send(
+	ctx context.Context,
+	topic Topic,
+	content any,
+	flags ...Flag,
+) error {
 	var by []byte
 	var err error
 	if content != nil {
@@ -32,7 +38,8 @@ func (s *serverConnection) Send(ctx context.Context, topic Topic, content any) e
 		return fmt.Errorf("marshal content: %w", err)
 	}
 	msg := message{
-		Topic:   s.topic,
+		Id:      s.id,
+		Topic:   reply,
 		Content: by,
 	}
 	out, err := json.Marshal(msg)
@@ -43,6 +50,34 @@ func (s *serverConnection) Send(ctx context.Context, topic Topic, content any) e
 }
 
 var _ Connection = &serverConnection{}
+
+type clientConnection struct {
+	client *Client
+	msg    *message
+}
+
+func newClientConnection(c *Client, msg *message) (*clientConnection, error) {
+	return &clientConnection{
+		client: c,
+		msg:    msg,
+	}, nil
+}
+
+func (c *clientConnection) Send(
+	ctx context.Context,
+	topic Topic,
+	content any,
+	flags ...Flag,
+) error {
+	flags = append(flags, iForceTopic(reply), iForceId(c.msg.Id))
+	return c.client.Send(ctx, reply, content, flags...)
+}
+
+func (c *clientConnection) Context() context.Context {
+	return context.Background()
+}
+
+var _ Connection = &clientConnection{}
 
 type Handler interface {
 	// This function returns a new object to unmarshal
