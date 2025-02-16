@@ -102,7 +102,7 @@ func (c *Client) Send(ctx context.Context, topic Topic, content any, flags ...Fl
 		}
 	}
 
-	if !msg.ShouldAck && !msg.ShouldReply {
+	if !msg.ShouldAck && !msg.ShouldReply && !msg.ShouldSucceed {
 		return c.sendForget(ctx, msg)
 	}
 
@@ -113,19 +113,37 @@ func (c *Client) Send(ctx context.Context, topic Topic, content any, flags ...Fl
 	if msg.ShouldReply {
 		count++
 	}
+	if msg.ShouldSucceed {
+		count++
+	}
 	replies, err := c.sendReply(ctx, msg, count)
 	if err != nil {
 		return err
 	}
-	if len(replies) != count {
+	if len(replies) != count && replies[len(replies)-1].Topic != errorT {
 		return fmt.Errorf("expected %d replies, got %d", count, len(replies))
 	}
+
 	for i, reply := range replies {
 		if i == 0 && msg.ShouldAck {
 			if reply.Topic != ack {
 				return errors.New("did not get an ack")
 			}
 			continue
+		}
+		if i == len(replies)-1 && msg.ShouldSucceed {
+			fmt.Printf("should succed got %s\n", reply.Topic)
+			if !slices.Contains([]Topic{success, errorT}, reply.Topic) {
+				return errors.New("did not got success or error reply")
+			}
+			if reply.Topic == success {
+				return nil
+			}
+			errMsg := ""
+			if err := json.Unmarshal(reply.Content, &errMsg); err != nil {
+				return fmt.Errorf("unmarshal error message: %w", err)
+			}
+			return errors.New(errMsg)
 		}
 		if err := json.Unmarshal(reply.Content, msg.replyTarget); err != nil {
 			return fmt.Errorf("unmarshal reply content: %w", err)
@@ -180,7 +198,7 @@ func (c *Client) readPump() {
 				continue
 			}
 
-			if msg.Topic == ack || msg.Topic == reply {
+			if slices.Contains([]Topic{ack, reply, success, errorT}, msg.Topic) {
 				pipe, ok := c.pipes[string(msg.Id)]
 				if !ok {
 					c.logger.Errorf("ack or reply has no recevier")

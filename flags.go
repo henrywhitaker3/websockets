@@ -39,6 +39,22 @@ func WithReply(target any) Flag {
 	return &withReply{target: target}
 }
 
+type withSuccess struct{}
+
+func (w withSuccess) ModifyMessage(msg *message) error {
+	newMsg, err := toSuccessfulMessage(msg)
+	if err != nil {
+		return err
+	}
+	*msg = *newMsg
+	return nil
+}
+
+// Requires the recipient to return a success message when all handlers return with no error
+func WithSuccess() Flag {
+	return withSuccess{}
+}
+
 type forceTopic struct {
 	topic Topic
 }

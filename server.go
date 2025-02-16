@@ -116,7 +116,37 @@ func (s *Server) handleIncoming(sess *melody.Session, data []byte) {
 	}
 	if err := handler.Handle(conn, body); err != nil {
 		s.logger.Errorf("handler returned error: %v", err)
+		if msg.ShouldSucceed {
+			fail, err := newMessage(errorT, err.Error())
+			if err != nil {
+				s.logger.Errorf("generate error message", "error", err)
+				return
+			}
+			fail.Id = msg.Id
+			by, err := json.Marshal(fail)
+			if err != nil {
+				s.logger.Errorf("marshal error message", "error", err)
+			}
+			if err := sess.Write(by); err != nil {
+				s.logger.Errorf("send error message", "error", err)
+			}
+		}
 		return
+	}
+
+	if msg.ShouldSucceed {
+		succ, err := json.Marshal(message{
+			Id:    msg.Id,
+			Topic: success,
+		})
+		if err != nil {
+			s.logger.Errorf("marshal success message", "error", err)
+			return
+		}
+		if err := sess.Write(succ); err != nil {
+			s.logger.Errorf("send success message", "error", err)
+			return
+		}
 	}
 }
 

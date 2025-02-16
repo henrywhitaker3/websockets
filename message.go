@@ -9,12 +9,14 @@ import (
 type Topic string
 
 const (
-	ack   Topic = "ack"
-	reply Topic = "reply"
+	ack     Topic = "ack"
+	reply   Topic = "reply"
+	success Topic = "success"
+	errorT  Topic = "error"
 )
 
 var (
-	protectedTopics = []Topic{ack, reply}
+	protectedTopics = []Topic{ack, reply, success, errorT}
 )
 
 type message struct {
@@ -22,8 +24,9 @@ type message struct {
 	Topic   Topic  `json:"topic"`
 	Content []byte `json:"content"`
 
-	ShouldAck   bool `json:"should_ack"`
-	ShouldReply bool `json:"should_reply"`
+	ShouldAck     bool `json:"should_ack"`
+	ShouldReply   bool `json:"should_reply"`
+	ShouldSucceed bool `json:"should_succeed"`
 
 	replyTarget any `json:"-"`
 }
@@ -60,5 +63,17 @@ func toRepliedMessage(msg *message) (*message, error) {
 		msg.Id = id
 	}
 	msg.ShouldReply = true
+	return msg, nil
+}
+
+func toSuccessfulMessage(msg *message) (*message, error) {
+	if len(msg.Id) == 0 {
+		id := make([]byte, 10)
+		if _, err := rand.Read(id); err != nil {
+			return nil, fmt.Errorf("generate message id: %w", err)
+		}
+		msg.Id = id
+	}
+	msg.ShouldSucceed = true
 	return msg, nil
 }
