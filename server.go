@@ -41,6 +41,9 @@ func NewServer(opts ServerOpts) *Server {
 	if opts.ReplyTimeout == 0 {
 		opts.ReplyTimeout = time.Second
 	}
+	for m.IsClosed() {
+		// Wait for it to open
+	}
 	return &Server{
 		m:            m,
 		handlers:     map[Topic]Handler{},
