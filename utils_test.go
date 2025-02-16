@@ -34,6 +34,8 @@ func ClientServer(t *testing.T) (*TestClient, *TestServer, context.CancelFunc) {
 		ReplyTimeout: time.Second * 100,
 	})
 	require.Nil(t, err)
+	// Give it time to connect
+	time.Sleep(time.Millisecond * 50)
 
 	return &TestClient{
 			Client: client,
