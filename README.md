@@ -43,7 +43,7 @@ type Handler struct{}
 
 func (h Handler) Empty() any {
     var val string
-    return val
+    return &val
 }
 
 func (h Handler) Handle(conn websocket.Connection, content any) error {
@@ -74,7 +74,8 @@ type replyHandler struct{
 }
 
 func (r replyHandler) Empty() any {
-    return ""
+    var out string
+    return &out
 }
 
 func (r replyHandler) Handle(conn websockets.Connection, _ any) error {
@@ -96,3 +97,15 @@ You can wait for the server to acknowledge the message by passing the
 ```go
 client.Send(ctx, websockets.Topic("bongo"), nil, websockets.WithAck())
 ```
+
+## Tracking Handler Success
+
+By default, a the `Send()` method will not return an error when the receiver's
+handler errors, as the sender only cares about if the transmission to the server
+was successful.
+
+You can add the `websockets.WithSuccess()` flag to the `Send()` call to require
+the receiver to return a response based on the result of the handler.
+
+If the `Handle()` method returns an error, the `err.Error()` value is returned
+by the sender's `Send()` call.

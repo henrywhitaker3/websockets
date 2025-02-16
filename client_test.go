@@ -24,17 +24,20 @@ type demo struct {
 	Text string `json:"text"`
 }
 
-type structHandler struct{}
-
-func (s structHandler) Empty() any {
-	return demo{}
+type structHandler struct {
+	called bool
 }
 
-func (s structHandler) Handle(conn Connection, content any) error {
-	val := content.(demo)
-	if val.Text != "appled" {
+func (s structHandler) Empty() any {
+	return &demo{}
+}
+
+func (s *structHandler) Handle(conn Connection, content any) error {
+	val := content.(*demo)
+	if val.Text != "apples" {
 		panic("not correct")
 	}
+	s.called = true
 	return nil
 }
 
@@ -42,10 +45,12 @@ func TestItUnmarshalsStructs(t *testing.T) {
 	client, server, cancel := ClientServer(t)
 	defer cancel()
 
-	require.Nil(t, server.Server.Register(bongo, structHandler{}))
+	h := &structHandler{}
+	require.Nil(t, server.Server.Register(bongo, h))
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*15)
 	defer cancel()
 
-	require.Nil(t, client.Client.Send(ctx, bongo, demo{Text: "apples"}))
+	require.Nil(t, client.Client.Send(ctx, bongo, demo{Text: "apples"}, WithSuccess()))
+	require.True(t, h.called)
 }
