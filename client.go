@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -56,6 +57,8 @@ func NewClient(opts ClientOpts) (*Client, error) {
 	if opts.ReplyTimeout == 0 {
 		opts.ReplyTimeout = time.Second
 	}
+	opts.Addr = strings.ReplaceAll(opts.Addr, "http://", "ws://")
+	opts.Addr = strings.ReplaceAll(opts.Addr, "https://", "wss://")
 	c := &Client{
 		conn:       conn,
 		handlers:   map[Topic]Handler{},

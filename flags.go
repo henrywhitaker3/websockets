@@ -6,6 +6,7 @@ type Flag interface {
 
 type withAck struct{}
 
+// Tells the server to send an ack back when it receives the message
 func WithAck() Flag {
 	return withAck{}
 }
@@ -33,6 +34,7 @@ func (w withReply) ModifyMessage(msg *message) error {
 	return nil
 }
 
+// Passes a target to the send function to unmarshal the response from the server into
 func WithReply(target any) Flag {
 	return &withReply{target: target}
 }
