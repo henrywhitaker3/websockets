@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"slices"
 	"sync"
+	"time"
 
 	"github.com/olahol/melody"
 )
@@ -18,10 +19,18 @@ type Server struct {
 	handlers   map[Topic]Handler
 	handlersMu *sync.RWMutex
 	logger     Logger
+
+	pipes map[string]chan *message
+
+	replyTimeout time.Duration
 }
 
 type ServerOpts struct {
 	Logger Logger
+
+	// The length of time the server waits for a reply back
+	// default to 1s
+	ReplyTimeout time.Duration
 }
 
 func NewServer(opts ServerOpts) *Server {
@@ -29,17 +38,22 @@ func NewServer(opts ServerOpts) *Server {
 	if opts.Logger == nil {
 		opts.Logger = nilLogger{}
 	}
+	if opts.ReplyTimeout == 0 {
+		opts.ReplyTimeout = time.Second
+	}
 	return &Server{
-		m:          m,
-		handlers:   map[Topic]Handler{},
-		handlersMu: &sync.RWMutex{},
-		logger:     opts.Logger,
+		m:            m,
+		handlers:     map[Topic]Handler{},
+		handlersMu:   &sync.RWMutex{},
+		logger:       opts.Logger,
+		pipes:        map[string]chan *message{},
+		replyTimeout: opts.ReplyTimeout,
 	}
 }
 
 func (s *Server) Register(topic Topic, handler Handler) error {
 	if slices.Contains(protectedTopics, topic) {
-		return errors.New("cannot register protected topic name")
+		return errors.New("protected topic")
 	}
 	s.handlersMu.Lock()
 	defer s.handlersMu.Unlock()
@@ -51,6 +65,32 @@ func (s *Server) handleIncoming(sess *melody.Session, data []byte) {
 	var msg message
 	if err := json.Unmarshal(data, &msg); err != nil {
 		s.logger.Errorf("unmarhsal incoming message: %v", err)
+		return
+	}
+	s.logger.Debugf("received message", "topic", msg.Topic)
+
+	if msg.ShouldAck {
+		ack, err := json.Marshal(message{
+			Id:    msg.Id,
+			Topic: ack,
+		})
+		if err != nil {
+			s.logger.Errorf("marshal ack message: %w", err)
+			return
+		}
+		if err := sess.Write(ack); err != nil {
+			s.logger.Errorf("send ack: %w", err)
+			return
+		}
+	}
+
+	if msg.Topic == ack || msg.Topic == reply {
+		pipe, ok := s.pipes[string(msg.Id)]
+		if !ok {
+			s.logger.Errorf("no registered pipe for message", "topic", msg.Topic)
+			return
+		}
+		pipe <- &msg
 		return
 	}
 
@@ -71,6 +111,7 @@ func (s *Server) handleIncoming(sess *melody.Session, data []byte) {
 
 	conn := &serverConnection{
 		s:     sess,
+		id:    msg.Id,
 		topic: msg.Topic,
 	}
 	if err := handler.Handle(conn, body); err != nil {
@@ -85,7 +126,7 @@ func (s *Server) Handle(w http.ResponseWriter, r *http.Request) error {
 }
 
 // Sends a message to all connected sessions
-func (s *Server) Broadcast(ctx context.Context, topic Topic, content string) error {
+func (s *Server) Broadcast(ctx context.Context, topic Topic, content any) error {
 	msg, err := newMessage(topic, content)
 	if err != nil {
 		return fmt.Errorf("create message: %w", err)
@@ -98,7 +139,7 @@ func (s *Server) Broadcast(ctx context.Context, topic Topic, content string) err
 }
 
 // Sends a message to one random connected session
-func (s *Server) Once(ctx context.Context, topic Topic, content string) error {
+func (s *Server) Once(ctx context.Context, topic Topic, content any, flags ...Flag) error {
 	sessions, err := s.m.Sessions()
 	if err != nil {
 		return fmt.Errorf("get sessions: %w", err)
@@ -114,11 +155,68 @@ func (s *Server) Once(ctx context.Context, topic Topic, content string) error {
 	if err != nil {
 		return fmt.Errorf("create message: %w", err)
 	}
+	for _, flag := range flags {
+		if err := flag.ModifyMessage(msg); err != nil {
+			return fmt.Errorf("apply flag to message: %w", err)
+		}
+	}
+	return s.send(session, msg)
+}
+
+func (s *Server) send(sess *melody.Session, msg *message) error {
 	by, err := json.Marshal(msg)
 	if err != nil {
 		return fmt.Errorf("marshal message: %w", err)
 	}
-	return session.Write(by)
+
+	if err := sess.Write(by); err != nil {
+		return fmt.Errorf("send message: %w", err)
+	}
+
+	count := 0
+	if msg.ShouldAck {
+		count++
+	}
+	if msg.ShouldReply {
+		count++
+	}
+	if count == 0 {
+		return nil
+	}
+
+	pipe := make(chan *message, 1)
+	s.pipes[string(msg.Id)] = pipe
+	defer delete(s.pipes, string(msg.Id))
+
+	messages := []*message{}
+
+	for range count {
+		ctx, cancel := context.WithTimeout(sess.Request.Context(), s.replyTimeout)
+		defer cancel()
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case msg := <-pipe:
+			messages = append(messages, msg)
+		}
+	}
+
+	if len(messages) != count {
+		return fmt.Errorf("expected %d replies, got %d", count, len(messages))
+	}
+
+	for i, reply := range messages {
+		if i == 0 && msg.ShouldAck {
+			if reply.Topic != ack {
+				return fmt.Errorf("ecpected ack, got %s", msg.Topic)
+			}
+			continue
+		}
+		if err := json.Unmarshal(reply.Content, msg.replyTarget); err != nil {
+			return fmt.Errorf("unmarshal reply into target: %w", err)
+		}
+	}
+	return nil
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
