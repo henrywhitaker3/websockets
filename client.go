@@ -197,7 +197,7 @@ func (c *Client) readPump() {
 					c.logger.Errorw("read on unexpected closed connection", "error", err)
 					return
 				}
-				c.logger.Errorw("reading incoming json: %v", err)
+				c.logger.Errorw("reading incoming json", "error", err)
 				continue
 			}
 
@@ -215,7 +215,7 @@ func (c *Client) readPump() {
 				ctx, cancel := context.WithTimeout(context.Background(), c.opts.ReplyTimeout)
 				if err := c.sendForget(ctx, &message{Id: msg.Id, Topic: ack}); err != nil {
 					cancel()
-					c.logger.Errorw("sending ack reply: %w", err)
+					c.logger.Errorw("sending ack reply", "error", err)
 					continue
 				}
 				cancel()
@@ -230,22 +230,22 @@ func (c *Client) readPump() {
 					defer c.handling.Done()
 					body := handler.Empty()
 					if err := json.Unmarshal(msg.Content, &body); err != nil {
-						c.logger.Errorw("unmarshal message content: %v", err)
+						c.logger.Errorw("unmarshal message content", "error", err)
 						return
 					}
 					conn, err := newClientConnection(c, &msg)
 					if err != nil {
-						c.logger.Errorw("could not create client connection: %w", "error", err)
+						c.logger.Errorw("could not create client connection", "error", err)
 						return
 					}
 					if err := handler.Handle(conn, body); err != nil {
-						c.logger.Errorw("handler returned error: %v", err)
+						c.logger.Errorw("handler returned error", "error", err)
 					}
 				}()
 				continue
 			}
 
-			c.logger.Errorw("unhandled message for %s", msg.Topic)
+			c.logger.Errorw("unhandled message", "topic", msg.Topic)
 		}
 	}
 }
