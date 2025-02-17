@@ -66,7 +66,7 @@ func (s replyHandler) Empty() any {
 
 func (s *replyHandler) Handle(conn Connection, out any) error {
 	s.called = true
-	return conn.Send(conn.Context(), bongo, s.responds)
+	return conn.Send(bongo, s.responds)
 }
 
 var _ Handler = &replyHandler{}

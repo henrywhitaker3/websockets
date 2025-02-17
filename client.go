@@ -277,7 +277,7 @@ func (c *Client) readPump() {
 			if slices.Contains([]Topic{ack, reply, success, errorT}, msg.Topic) {
 				pipe, ok := c.pipes[string(msg.Id)]
 				if !ok {
-					c.logger.Errorw("ack or reply has no recevier")
+					c.logger.Errorw("ack or reply has no recevier", "topic", msg.Topic)
 					continue
 				}
 				pipe <- &msg

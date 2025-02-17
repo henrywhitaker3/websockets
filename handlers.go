@@ -10,7 +10,7 @@ import (
 
 type Connection interface {
 	Context() context.Context
-	Send(ctx context.Context, topic Topic, content any, flags ...Flag) error
+	Send(topic Topic, content any, flags ...Flag) error
 }
 
 type serverConnection struct {
@@ -24,7 +24,6 @@ func (s *serverConnection) Context() context.Context {
 }
 
 func (s *serverConnection) Send(
-	ctx context.Context,
 	topic Topic,
 	content any,
 	flags ...Flag,
@@ -64,13 +63,12 @@ func newClientConnection(c *Client, msg *message) (*clientConnection, error) {
 }
 
 func (c *clientConnection) Send(
-	ctx context.Context,
 	topic Topic,
 	content any,
 	flags ...Flag,
 ) error {
 	flags = append(flags, iForceTopic(reply), iForceId(c.msg.Id))
-	return c.client.Send(ctx, reply, content, flags...)
+	return c.client.Send(c.Context(), reply, content, flags...)
 }
 
 func (c *clientConnection) Context() context.Context {
