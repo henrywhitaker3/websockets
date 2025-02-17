@@ -17,10 +17,10 @@ import (
 type Client struct {
 	conn *websocket.Conn
 
+	control *control
+
 	handlers   map[Topic]Handler
 	handlersMu *sync.RWMutex
-
-	tx chan *message
 
 	handling *sync.WaitGroup
 	pipes    map[string]chan *message
@@ -28,6 +28,9 @@ type Client struct {
 	fin      chan struct{}
 	closer   *sync.Once
 	isClosed bool
+
+	disconnect   chan struct{}
+	reconnecting bool
 
 	logger Logger
 	opts   ClientOpts
@@ -43,40 +46,105 @@ type ClientOpts struct {
 	// defaults to 1s
 	ReplyTimeout time.Duration
 
+	// The duration to wait after each connection attempt (default: 1s)
+	ReconnectPause time.Duration
+
+	// The number of times the client will try to reconnect (default: 10)
+	ReconnectLimit int
+
 	Logger Logger
 }
 
 func NewClient(opts ClientOpts) (*Client, error) {
 	opts.Addr = strings.ReplaceAll(opts.Addr, "http://", "ws://")
 	opts.Addr = strings.ReplaceAll(opts.Addr, "https://", "wss://")
-	conn, resp, err := websocket.DefaultDialer.Dial(opts.Addr, opts.Headers)
-	if err != nil {
-		if resp == nil {
-			return nil, fmt.Errorf("connect error: %w", err)
-		}
-		return nil, fmt.Errorf("connect error: %w: %d", err, resp.StatusCode)
-	}
 	if opts.Logger == nil {
 		opts.Logger = nilLogger{}
 	}
 	if opts.ReplyTimeout == 0 {
 		opts.ReplyTimeout = time.Second
 	}
+	if opts.ReconnectLimit == 0 {
+		opts.ReconnectLimit = 10
+	}
 	c := &Client{
-		conn:       conn,
+		control:    newControl(),
 		handlers:   map[Topic]Handler{},
 		handlersMu: &sync.RWMutex{},
-		tx:         make(chan *message, 250),
 		handling:   &sync.WaitGroup{},
 		pipes:      map[string]chan *message{},
-		fin:        make(chan struct{}),
+		fin:        make(chan struct{}, 1),
+		disconnect: make(chan struct{}),
 		closer:     &sync.Once{},
 		logger:     opts.Logger,
 		opts:       opts,
 	}
-	go c.readPump()
-	go c.writePump()
+
+	c.logger.Debugw("trying to connect to the server")
+	c.reconnect()
+	go c.watchForDisconnects()
+
 	return c, nil
+}
+
+func (c *Client) watchForDisconnects() {
+	c.logger.Debugw("watching for disconnects")
+	for {
+		select {
+		case <-c.Closed():
+			return
+		case <-c.disconnect:
+			c.logger.Infow("observed disconnect")
+			c.reconnect()
+			c.control.unlockConn()
+			c.reconnecting = false
+		}
+	}
+}
+
+// Run the connection loop
+func (c *Client) reconnect() {
+	if c.isClosed {
+		return
+	}
+	count := 1
+	for {
+		if count == c.opts.ReconnectLimit {
+			c.logger.Errorw("client reached reconnect limit")
+			c.Close()
+			return
+		}
+		c.logger.Debugw("connecting to server", "attempt", count)
+		if err := c.connect(); err != nil {
+			c.logger.Errorw("connection failed", "error", err)
+			time.Sleep(c.opts.ReconnectPause)
+			count++
+			continue
+		}
+		c.logger.Debugw("connected to server")
+		go c.readPump()
+		return
+	}
+}
+
+func (c *Client) triggerReconnect() {
+	if !c.reconnecting {
+		c.control.lockConn()
+		c.reconnecting = true
+		c.disconnect <- struct{}{}
+	}
+}
+
+func (c *Client) connect() error {
+	conn, resp, err := websocket.DefaultDialer.Dial(c.opts.Addr, c.opts.Headers)
+	if err != nil {
+		if resp == nil {
+			return fmt.Errorf("connect error: %w", err)
+		}
+		return fmt.Errorf("connect error [%d]: %w", resp.StatusCode, err)
+	}
+	c.conn = conn
+	return nil
 }
 
 // Register handlers for topics originating from the server
@@ -92,9 +160,6 @@ func (c *Client) Register(topic Topic, h Handler) error {
 
 // Sends a message to the server and unmarshalls it into output
 func (c *Client) Send(ctx context.Context, topic Topic, content any, flags ...Flag) error {
-	if c.isClosed {
-		return errors.New("send on closed connection")
-	}
 	msg, err := newMessage(topic, content)
 	if err != nil {
 		return err
@@ -155,13 +220,18 @@ func (c *Client) Send(ctx context.Context, topic Topic, content any, flags ...Fl
 }
 
 func (c *Client) sendReply(ctx context.Context, msg *message, count int) ([]*message, error) {
+	if c.isClosed {
+		return nil, errors.New("send on closed connection")
+	}
 	if len(msg.Id) == 0 {
 		return nil, errors.New("reply message must contain id")
 	}
 	pipe := make(chan *message, count)
 	c.pipes[string(msg.Id)] = pipe
 	defer delete(c.pipes, string(msg.Id))
-	c.tx <- msg
+	if err := c.write(msg); err != nil {
+		return nil, err
+	}
 
 	messages := []*message{}
 
@@ -179,8 +249,7 @@ func (c *Client) sendReply(ctx context.Context, msg *message, count int) ([]*mes
 }
 
 func (c *Client) sendForget(ctx context.Context, msg *message) error {
-	c.tx <- msg
-	return nil
+	return c.write(msg)
 }
 
 func (c *Client) readPump() {
@@ -189,15 +258,20 @@ func (c *Client) readPump() {
 		case <-c.Closed():
 			return
 		default:
+			c.control.lockRx()
 			var msg message
-			if err := c.conn.ReadJSON(&msg); err != nil {
-				if websocket.IsUnexpectedCloseError(err) {
-					c.close()
-					c.logger.Errorw("read on unexpected closed connection", "error", err)
+			err := c.conn.ReadJSON(&msg)
+			c.control.unlockRx()
+			if err != nil {
+				if errors.Is(err, websocket.ErrCloseSent) ||
+					websocket.IsCloseError(err, websocket.CloseNormalClosure) {
+					c.logger.Infow("server closed connection")
+					c.Close()
 					return
 				}
-				c.logger.Errorw("reading incoming json", "error", err)
-				continue
+				c.triggerReconnect()
+				c.logger.Errorw("read incoming message failed", "error", err)
+				return
 			}
 
 			if slices.Contains([]Topic{ack, reply, success, errorT}, msg.Topic) {
@@ -254,19 +328,25 @@ func (c *Client) Context() context.Context {
 	return context.Background()
 }
 
-func (c *Client) writePump() {
-	for {
-		select {
-		case <-c.Closed():
-			return
-		case msg := <-c.tx:
-			if err := c.conn.WriteJSON(msg); err != nil {
-				// Maybe log the error?
-				c.close()
-				return
-			}
-		}
+func (c *Client) write(msg *message) error {
+	if c.isClosed {
+		return errors.New("send on closed connection")
 	}
+	c.control.lockTx()
+	err := c.conn.WriteJSON(msg)
+	c.control.unlockTx()
+	if err != nil {
+		if errors.Is(err, websocket.ErrCloseSent) ||
+			websocket.IsCloseError(err, websocket.CloseNormalClosure) {
+			c.logger.Infow("server closed connection, closing...")
+			c.Close()
+			return err
+		}
+		c.triggerReconnect()
+		c.logger.Errorw("sending message failed", "error", err)
+		return err
+	}
+	return nil
 }
 
 func (c *Client) Close() error {

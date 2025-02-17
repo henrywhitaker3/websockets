@@ -1,9 +1,11 @@
 package websockets
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -24,11 +26,11 @@ type TestClient struct {
 }
 
 func ClientServer(t *testing.T) (*TestClient, *TestServer, context.CancelFunc) {
-	srvLog := &testLogger{unit: "server"}
+	srvLog := newTestLogger(t, "server")
 	server := NewServer(ServerOpts{Logger: srvLog})
 	srv := httptest.NewServer(server)
 
-	clientLog := &testLogger{unit: "client"}
+	clientLog := newTestLogger(t, "client")
 	client, err := NewClient(ClientOpts{
 		Addr:         urlToWsUrl(srv.URL),
 		Logger:       clientLog,
@@ -98,22 +100,44 @@ func (s errorHandler) Handle(conn Connection, content any) error {
 var _ Handler = errorHandler{}
 
 type testLogger struct {
+	slog   *slog.Logger
 	unit   string
 	infos  []string
 	errors []string
 	debugs []string
 }
 
+func newTestLogger(t *testing.T, unit string) *testLogger {
+	t.Helper()
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{
+		Level: slog.LevelDebug,
+	}))
+	t.Cleanup(func() {
+		t.Log(buf.String())
+	})
+	return &testLogger{
+		slog: logger,
+		unit: unit,
+	}
+}
+
 func (t *testLogger) Infow(msg string, args ...any) {
 	t.infos = append(t.infos, fmt.Sprintf(msg, args...))
+	args = append(args, "unit", t.unit)
+	t.slog.Info(msg, args...)
 }
 
 func (t *testLogger) Errorw(msg string, args ...any) {
 	t.errors = append(t.errors, fmt.Sprintf(msg, args...))
+	args = append(args, "unit", t.unit)
+	t.slog.Error(msg, args...)
 }
 
 func (t *testLogger) Debugw(msg string, args ...any) {
 	t.debugs = append(t.debugs, fmt.Sprintf(msg, args...))
+	args = append(args, "unit", t.unit)
+	t.slog.Debug(msg, args...)
 }
 
 func (l testLogger) assertInfos(t *testing.T, count int) {

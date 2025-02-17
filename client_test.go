@@ -2,6 +2,7 @@ package websockets
 
 import (
 	"context"
+	"net"
 	"testing"
 	"time"
 
@@ -18,6 +19,30 @@ func TestItHandlesDisconnectedConnections(t *testing.T) {
 	time.Sleep(time.Millisecond * 100)
 
 	require.NotNil(t, client.Client.Send(context.Background(), bongo, nil))
+}
+
+func TestItReconnectsWhenItDisconnect(t *testing.T) {
+	client, server, cancel := ClientServer(t)
+	defer cancel()
+
+	h := &simpleHandler{}
+	require.Nil(t, server.Server.Register(bongo, h))
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*15)
+	defer cancel()
+
+	require.Nil(t, client.Client.Send(ctx, bongo, nil, WithAck()))
+	require.True(t, h.called)
+	h.called = false
+	require.False(t, h.called)
+
+	tcpConn, ok := client.Client.conn.UnderlyingConn().(*net.TCPConn)
+	require.True(t, ok)
+	require.Nil(t, tcpConn.SetLinger(0))
+	require.Nil(t, tcpConn.Close())
+
+	require.Nil(t, client.Client.Send(ctx, bongo, nil, WithAck()))
+	require.True(t, h.called)
 }
 
 type demo struct {
