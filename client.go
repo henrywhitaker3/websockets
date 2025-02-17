@@ -352,7 +352,7 @@ func (c *Client) write(msg *message) error {
 func (c *Client) Close() error {
 	c.handling.Wait()
 	c.close()
-	return c.conn.Close()
+	return nil
 }
 
 func (c *Client) Closed() <-chan struct{} {
@@ -361,6 +361,9 @@ func (c *Client) Closed() <-chan struct{} {
 
 func (c *Client) close() {
 	c.closer.Do(func() {
+		if c.conn != nil {
+			c.conn.Close()
+		}
 		close(c.fin)
 		c.isClosed = true
 	})
