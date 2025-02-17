@@ -135,7 +135,6 @@ func (c *Client) Send(ctx context.Context, topic Topic, content any, flags ...Fl
 			continue
 		}
 		if i == len(replies)-1 && msg.ShouldSucceed {
-			fmt.Printf("should succed got %s\n", reply.Topic)
 			if !slices.Contains([]Topic{success, errorT}, reply.Topic) {
 				return errors.New("did not got success or error reply")
 			}
