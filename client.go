@@ -84,8 +84,8 @@ func NewClient(opts ClientOpts) (*Client, error) {
 	}
 
 	c.logger.Debugw("trying to connect to the server")
-	c.reconnect()
 	go c.watchForDisconnects()
+	c.triggerReconnect()
 
 	return c, nil
 }
