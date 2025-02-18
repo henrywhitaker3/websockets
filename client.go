@@ -67,6 +67,9 @@ func NewClient(opts ClientOpts) (*Client, error) {
 	if opts.ReconnectLimit == 0 {
 		opts.ReconnectLimit = 10
 	}
+	if opts.ReconnectPause == 0 {
+		opts.ReconnectPause = time.Second
+	}
 	c := &Client{
 		control:    newControl(),
 		handlers:   map[Topic]Handler{},
