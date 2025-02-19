@@ -430,27 +430,25 @@ func (c *Client) Wait(ctx context.Context) error {
 	}
 }
 
-func (c *Client) RegisterMetrics(reg prometheus.Registerer) error {
-	if err := reg.Register(c.opts.Metrics.MessagesSent); err != nil {
-		return err
-	}
-	if err := reg.Register(c.opts.Metrics.HandlersRegistered); err != nil {
-		return err
-	}
-	if err := reg.Register(c.opts.Metrics.Inflight); err != nil {
-		return err
-	}
-	if err := reg.Register(c.opts.Metrics.ReplyTime); err != nil {
-		return err
-	}
-	if err := reg.Register(c.opts.Metrics.ReadErrors); err != nil {
-		return err
-	}
-	if err := reg.Register(c.opts.Metrics.WriteErrors); err != nil {
-		return err
-	}
-	if err := reg.Register(c.opts.Metrics.Reconnections); err != nil {
-		return err
-	}
-	return nil
+// Register metrics against the provided registry, will ignore any errors
+// returned when registering the metrics
+func (c *Client) RegisterMetrics(reg prometheus.Registerer) {
+	reg.Register(c.opts.Metrics.MessagesSent)
+	reg.Register(c.opts.Metrics.HandlersRegistered)
+	reg.Register(c.opts.Metrics.Inflight)
+	reg.Register(c.opts.Metrics.ReplyTime)
+	reg.Register(c.opts.Metrics.ReadErrors)
+	reg.Register(c.opts.Metrics.WriteErrors)
+	reg.Register(c.opts.Metrics.Reconnections)
+}
+
+// Register metrics against the provided registry, will panic is the registry errors
+func (c *Client) MustRegisterMetrics(reg prometheus.Registerer) {
+	reg.MustRegister(c.opts.Metrics.MessagesSent)
+	reg.MustRegister(c.opts.Metrics.HandlersRegistered)
+	reg.MustRegister(c.opts.Metrics.Inflight)
+	reg.MustRegister(c.opts.Metrics.ReplyTime)
+	reg.MustRegister(c.opts.Metrics.ReadErrors)
+	reg.MustRegister(c.opts.Metrics.WriteErrors)
+	reg.MustRegister(c.opts.Metrics.Reconnections)
 }
