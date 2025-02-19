@@ -38,6 +38,9 @@ type ServerOpts struct {
 	// The length of time the server waits for a reply back
 	// default to 1s
 	ReplyTimeout time.Duration
+
+	// Ping interval (default: 10s)
+	PingInterval time.Duration
 }
 
 func NewServer(opts ServerOpts) *Server {
@@ -46,8 +49,12 @@ func NewServer(opts ServerOpts) *Server {
 		def := false
 		opts.ConcurrentHandling = &def
 	}
+	if opts.PingInterval == 0 {
+		opts.PingInterval = time.Second * 10
+	}
 	m.Config.ConcurrentMessageHandling = *opts.ConcurrentHandling
 	m.Config.MaxMessageSize = opts.MaxMessageSize
+	m.Config.PingPeriod = opts.PingInterval
 	if opts.Logger == nil {
 		opts.Logger = nilLogger{}
 	}
