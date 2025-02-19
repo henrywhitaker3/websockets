@@ -79,3 +79,5 @@ func TestItUnmarshalsStructs(t *testing.T) {
 	require.Nil(t, client.Client.Send(ctx, bongo, demo{Text: "apples"}, WithSuccess()))
 	require.True(t, h.called)
 }
+
+func TestClientSendBlocksUntilConnection(t *testing.T) {}
