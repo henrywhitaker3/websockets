@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 type Client struct {
@@ -53,6 +54,10 @@ type ClientOpts struct {
 	// The number of times the client will try to reconnect (default: 10)
 	ReconnectLimit int
 
+	// Metrics to track client activity, if nil (or any are empty) defaults will
+	// be created
+	Metrics *ClientMetrics
+
 	Logger Logger
 }
 
@@ -71,6 +76,10 @@ func NewClient(opts ClientOpts) (*Client, error) {
 	if opts.ReconnectPause == 0 {
 		opts.ReconnectPause = time.Second
 	}
+	if opts.Metrics == nil {
+		opts.Metrics = &ClientMetrics{}
+	}
+	buildClientMetrics(opts.Metrics)
 	c := &Client{
 		control:    newControl(),
 		handlers:   map[Topic]Handler{},
@@ -120,6 +129,7 @@ func (c *Client) reconnect() {
 			return
 		}
 		c.logger.Debugw("connecting to server", "attempt", count)
+		c.opts.Metrics.Reconnections.Inc()
 		if err := c.connect(); err != nil {
 			c.logger.Errorw("connection failed", "error", err)
 			time.Sleep(c.opts.ReconnectPause)
@@ -160,6 +170,7 @@ func (c *Client) Register(topic Topic, h Handler) error {
 	c.handlersMu.Lock()
 	defer c.handlersMu.Unlock()
 	c.handlers[topic] = h
+	c.opts.Metrics.HandlersRegistered.Inc()
 	return nil
 }
 
@@ -234,6 +245,13 @@ func (c *Client) sendReply(ctx context.Context, msg *message, count int) ([]*mes
 	pipe := make(chan *message, count)
 	c.listen(msg.Id, pipe)
 	defer c.forget(msg.Id)
+
+	start := time.Now()
+	defer func() {
+		c.opts.Metrics.ReplyTime.WithLabelValues(string(msg.Topic)).
+			Observe(time.Since(start).Seconds())
+	}()
+
 	if err := c.write(msg); err != nil {
 		return nil, err
 	}
@@ -258,12 +276,14 @@ func (c *Client) sendForget(ctx context.Context, msg *message) error {
 }
 
 func (c *Client) listen(id []byte, pipe chan *message) {
+	c.opts.Metrics.Inflight.Inc()
 	c.pipesMu.Lock()
 	defer c.pipesMu.Unlock()
 	c.pipes[string(id)] = pipe
 }
 
 func (c *Client) forget(id []byte) {
+	c.opts.Metrics.Inflight.Add(-1)
 	c.pipesMu.Lock()
 	defer c.pipesMu.Unlock()
 	delete(c.pipes, string(id))
@@ -287,6 +307,7 @@ func (c *Client) readPump() {
 			err := c.conn.ReadJSON(&msg)
 			c.control.unlockRx()
 			if err != nil {
+				c.opts.Metrics.ReadErrors.Inc()
 				if errors.Is(err, websocket.ErrCloseSent) ||
 					websocket.IsCloseError(err, websocket.CloseNormalClosure) {
 					c.logger.Infow("server closed connection")
@@ -356,10 +377,13 @@ func (c *Client) write(msg *message) error {
 	if c.isClosed {
 		return errors.New("send on closed connection")
 	}
+	start := time.Now()
+
 	c.control.lockTx()
 	err := c.conn.WriteJSON(msg)
 	c.control.unlockTx()
 	if err != nil {
+		c.opts.Metrics.WriteErrors.Inc()
 		if errors.Is(err, websocket.ErrCloseSent) ||
 			websocket.IsCloseError(err, websocket.CloseNormalClosure) {
 			c.logger.Infow("server closed connection, closing...")
@@ -370,6 +394,8 @@ func (c *Client) write(msg *message) error {
 		c.logger.Errorw("sending message failed", "error", err)
 		return err
 	}
+	c.opts.Metrics.MessagesSent.WithLabelValues(string(msg.Topic)).
+		Observe(time.Since(start).Seconds())
 	return nil
 }
 
@@ -402,4 +428,29 @@ func (c *Client) Wait(ctx context.Context) error {
 	case <-c.Closed():
 		return nil
 	}
+}
+
+func (c *Client) RegisterMetrics(reg prometheus.Registerer) error {
+	if err := reg.Register(c.opts.Metrics.MessagesSent); err != nil {
+		return err
+	}
+	if err := reg.Register(c.opts.Metrics.HandlersRegistered); err != nil {
+		return err
+	}
+	if err := reg.Register(c.opts.Metrics.Inflight); err != nil {
+		return err
+	}
+	if err := reg.Register(c.opts.Metrics.ReplyTime); err != nil {
+		return err
+	}
+	if err := reg.Register(c.opts.Metrics.ReadErrors); err != nil {
+		return err
+	}
+	if err := reg.Register(c.opts.Metrics.WriteErrors); err != nil {
+		return err
+	}
+	if err := reg.Register(c.opts.Metrics.Reconnections); err != nil {
+		return err
+	}
+	return nil
 }
