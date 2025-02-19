@@ -24,6 +24,7 @@ type Client struct {
 
 	handling *sync.WaitGroup
 	pipes    map[string]chan *message
+	pipesMu  *sync.RWMutex
 
 	fin      chan struct{}
 	closer   *sync.Once
@@ -76,6 +77,7 @@ func NewClient(opts ClientOpts) (*Client, error) {
 		handlersMu: &sync.RWMutex{},
 		handling:   &sync.WaitGroup{},
 		pipes:      map[string]chan *message{},
+		pipesMu:    &sync.RWMutex{},
 		fin:        make(chan struct{}, 1),
 		disconnect: make(chan struct{}),
 		closer:     &sync.Once{},
@@ -230,8 +232,8 @@ func (c *Client) sendReply(ctx context.Context, msg *message, count int) ([]*mes
 		return nil, errors.New("reply message must contain id")
 	}
 	pipe := make(chan *message, count)
-	c.pipes[string(msg.Id)] = pipe
-	defer delete(c.pipes, string(msg.Id))
+	c.listen(msg.Id, pipe)
+	defer c.forget(msg.Id)
 	if err := c.write(msg); err != nil {
 		return nil, err
 	}
@@ -253,6 +255,25 @@ func (c *Client) sendReply(ctx context.Context, msg *message, count int) ([]*mes
 
 func (c *Client) sendForget(ctx context.Context, msg *message) error {
 	return c.write(msg)
+}
+
+func (c *Client) listen(id []byte, pipe chan *message) {
+	c.pipesMu.Lock()
+	defer c.pipesMu.Unlock()
+	c.pipes[string(id)] = pipe
+}
+
+func (c *Client) forget(id []byte) {
+	c.pipesMu.Lock()
+	defer c.pipesMu.Unlock()
+	delete(c.pipes, string(id))
+}
+
+func (c *Client) getPipe(id []byte) (chan *message, bool) {
+	c.pipesMu.RLock()
+	defer c.pipesMu.RUnlock()
+	pipe, ok := c.pipes[string(id)]
+	return pipe, ok
 }
 
 func (c *Client) readPump() {
@@ -278,7 +299,7 @@ func (c *Client) readPump() {
 			}
 
 			if slices.Contains([]Topic{ack, reply, success, errorT}, msg.Topic) {
-				pipe, ok := c.pipes[string(msg.Id)]
+				pipe, ok := c.getPipe(msg.Id)
 				if !ok {
 					c.logger.Errorw("ack or reply has no recevier", "topic", msg.Topic)
 					continue
