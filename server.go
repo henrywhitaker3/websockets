@@ -20,7 +20,8 @@ type Server struct {
 	handlersMu *sync.RWMutex
 	logger     Logger
 
-	pipes map[string]chan *message
+	pipes   map[string]chan *message
+	pipesMu *sync.RWMutex
 
 	replyTimeout time.Duration
 }
@@ -62,6 +63,7 @@ func NewServer(opts ServerOpts) *Server {
 		handlersMu:   &sync.RWMutex{},
 		logger:       opts.Logger,
 		pipes:        map[string]chan *message{},
+		pipesMu:      &sync.RWMutex{},
 		replyTimeout: opts.ReplyTimeout,
 	}
 }
@@ -74,6 +76,25 @@ func (s *Server) Register(topic Topic, handler Handler) error {
 	defer s.handlersMu.Unlock()
 	s.handlers[topic] = handler
 	return nil
+}
+
+func (s *Server) listen(id []byte, pipe chan *message) {
+	s.pipesMu.Lock()
+	defer s.pipesMu.Unlock()
+	s.pipes[string(id)] = pipe
+}
+
+func (s *Server) forget(id []byte) {
+	s.pipesMu.Lock()
+	defer s.pipesMu.Unlock()
+	delete(s.pipes, string(id))
+}
+
+func (s *Server) getPipe(id []byte) (chan *message, bool) {
+	s.pipesMu.RLock()
+	defer s.pipesMu.RUnlock()
+	pipe, ok := s.pipes[string(id)]
+	return pipe, ok
 }
 
 func (s *Server) handleIncoming(sess *melody.Session, data []byte) {
@@ -100,7 +121,7 @@ func (s *Server) handleIncoming(sess *melody.Session, data []byte) {
 	}
 
 	if msg.Topic == ack || msg.Topic == reply {
-		pipe, ok := s.pipes[string(msg.Id)]
+		pipe, ok := s.getPipe(msg.Id)
 		if !ok {
 			s.logger.Errorw("no registered pipe for message", "topic", msg.Topic)
 			return
@@ -230,9 +251,8 @@ func (s *Server) send(sess *melody.Session, msg *message) error {
 	}
 
 	pipe := make(chan *message, 1)
-	s.pipes[string(msg.Id)] = pipe
-	defer delete(s.pipes, string(msg.Id))
-
+	s.listen(msg.Id, pipe)
+	defer s.forget(msg.Id)
 	messages := []*message{}
 
 	for range count {
