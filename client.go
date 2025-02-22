@@ -344,7 +344,7 @@ func (c *Client) readPump() {
 			c.handlersMu.RUnlock()
 			if ok {
 				c.handling.Add(1)
-				go func() {
+				go func(msg message) {
 					defer c.handling.Done()
 					body := handler.Empty()
 					if err := json.Unmarshal(msg.Content, &body); err != nil {
@@ -357,9 +357,33 @@ func (c *Client) readPump() {
 						return
 					}
 					if err := handler.Handle(conn, body); err != nil {
+						if msg.ShouldSucceed {
+							fail, err := newMessage(errorT, err.Error())
+							if err != nil {
+								c.logger.Errorw("generate error message", "error", err)
+								return
+							}
+							fail.Id = msg.Id
+							if err := c.sendForget(context.Background(), fail); err != nil {
+								c.logger.Errorw("send error message", "error", err)
+								return
+							}
+						}
 						c.logger.Errorw("handler returned error", "error", err)
+						return
 					}
-				}()
+
+					if msg.ShouldSucceed {
+						succ := message{
+							Id:    msg.Id,
+							Topic: success,
+						}
+						if err := c.sendForget(context.Background(), &succ); err != nil {
+							c.logger.Errorw("send success message", "error", err)
+							return
+						}
+					}
+				}(msg)
 				continue
 			}
 

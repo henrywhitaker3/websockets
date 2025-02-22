@@ -127,7 +127,7 @@ func (s *Server) handleIncoming(sess *melody.Session, data []byte) {
 		}
 	}
 
-	if msg.Topic == ack || msg.Topic == reply {
+	if slices.Contains([]Topic{ack, reply, errorT, success}, msg.Topic) {
 		pipe, ok := s.getPipe(msg.Id)
 		if !ok {
 			s.logger.Errorw("no registered pipe for message", "topic", msg.Topic)
@@ -253,6 +253,9 @@ func (s *Server) send(sess *melody.Session, msg *message) error {
 	if msg.ShouldReply {
 		count++
 	}
+	if msg.ShouldSucceed {
+		count++
+	}
 	if count == 0 {
 		return nil
 	}
@@ -283,6 +286,19 @@ func (s *Server) send(sess *melody.Session, msg *message) error {
 				return fmt.Errorf("ecpected ack, got %s", msg.Topic)
 			}
 			continue
+		}
+		if i == len(messages)-1 && msg.ShouldSucceed {
+			if !slices.Contains([]Topic{success, errorT}, reply.Topic) {
+				return errors.New("did not got success or error reply")
+			}
+			if reply.Topic == success {
+				return nil
+			}
+			errMsg := ""
+			if err := json.Unmarshal(reply.Content, &errMsg); err != nil {
+				return fmt.Errorf("unmarshal error message: %w", err)
+			}
+			return errors.New(errMsg)
 		}
 		if err := json.Unmarshal(reply.Content, msg.replyTarget); err != nil {
 			return fmt.Errorf("unmarshal reply into target: %w", err)
