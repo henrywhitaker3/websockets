@@ -174,8 +174,15 @@ func (c *Client) Register(topic Topic, h Handler) error {
 	return nil
 }
 
+var (
+	ErrClientClosed = errors.New("client is closed")
+)
+
 // Sends a message to the server and unmarshalls it into output
 func (c *Client) Send(ctx context.Context, topic Topic, content any, flags ...Flag) error {
+	if c.isClosed {
+		return ErrClientClosed
+	}
 	msg, err := newMessage(topic, content)
 	if err != nil {
 		return err

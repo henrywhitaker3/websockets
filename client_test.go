@@ -45,6 +45,26 @@ func TestItReconnectsWhenItDisconnect(t *testing.T) {
 	require.True(t, h.called)
 }
 
+func TestItClosesChannelWhenReachingDisconnectLimit(t *testing.T) {
+	client, err := NewClient(ClientOpts{
+		Addr:           "127.0.0.1:80",
+		ReconnectPause: time.Millisecond * 20,
+		ReconnectLimit: 3,
+	})
+	require.Nil(t, err)
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+	defer cancel()
+
+	select {
+	case <-ctx.Done():
+		t.Error("timed out waiting for client to close")
+	case <-client.Closed():
+		t.Log("received client closed event")
+		return
+	}
+}
+
 type demo struct {
 	Text string `json:"text"`
 }
