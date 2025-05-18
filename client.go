@@ -405,7 +405,7 @@ func (c *Client) Context() context.Context {
 }
 
 func (c *Client) write(msg *message) error {
-	if c.isClosed {
+	if c.isClosed || c.conn == nil {
 		return errors.New("send on closed connection")
 	}
 	start := time.Now()
