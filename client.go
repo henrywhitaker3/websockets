@@ -31,6 +31,7 @@ type Client struct {
 	closer   *sync.Once
 	isClosed bool
 
+	connected    chan struct{}
 	disconnect   chan struct{}
 	reconnecting bool
 
@@ -88,6 +89,7 @@ func NewClient(opts ClientOpts) (*Client, error) {
 		pipes:      map[string]chan *message{},
 		pipesMu:    &sync.RWMutex{},
 		fin:        make(chan struct{}, 1),
+		connected:  make(chan struct{}, 10),
 		disconnect: make(chan struct{}),
 		closer:     &sync.Once{},
 		logger:     opts.Logger,
@@ -159,6 +161,7 @@ func (c *Client) connect() error {
 		return fmt.Errorf("connect error [%d]: %w", resp.StatusCode, err)
 	}
 	c.conn = conn
+	c.connected <- struct{}{}
 	return nil
 }
 
@@ -405,6 +408,16 @@ func (c *Client) Context() context.Context {
 }
 
 func (c *Client) write(msg *message) error {
+	if c.conn == nil {
+		ctx, cancel := context.WithTimeout(context.Background(), c.opts.ReplyTimeout)
+		defer cancel()
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-c.connected:
+			// We can now carry on as their is a connection set
+		}
+	}
 	if c.isClosed || c.conn == nil {
 		return errors.New("send on closed connection")
 	}
