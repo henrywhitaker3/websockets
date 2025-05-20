@@ -409,13 +409,14 @@ func (c *Client) Context() context.Context {
 
 func (c *Client) write(msg *message) error {
 	if c.conn == nil {
+		c.triggerReconnect()
 		ctx, cancel := context.WithTimeout(context.Background(), c.opts.ReplyTimeout)
 		defer cancel()
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return fmt.Errorf("cannot send down nil connection: %w", ctx.Err())
 		case <-c.connected:
-			// We can now carry on as their is a connection set
+			// We can now carry on as there is a connection set
 		}
 	}
 	if c.isClosed || c.conn == nil {
