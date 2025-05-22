@@ -425,8 +425,8 @@ func (c *Client) write(msg *message) error {
 	start := time.Now()
 
 	c.control.lockTx()
+	defer c.control.unlockTx()
 	err := c.conn.WriteJSON(msg)
-	c.control.unlockTx()
 	if err != nil {
 		c.opts.Metrics.WriteErrors.Inc()
 		if errors.Is(err, websocket.ErrCloseSent) ||
