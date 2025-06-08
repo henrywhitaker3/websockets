@@ -3,7 +3,7 @@ module github.com/henrywhitaker3/websockets
 go 1.23.6
 
 require (
-	github.com/olahol/melody v1.2.1
+	github.com/olahol/melody v1.3.0
 	github.com/prometheus/client_golang v1.21.0
 	github.com/stretchr/testify v1.10.0
 )
